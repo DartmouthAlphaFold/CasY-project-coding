@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 import os
 import glob
 import pickle
@@ -21,7 +23,8 @@ def get_pae_plddt(model_dicts, model_type):
     else:    
         for i,d in enumerate(model_dicts):
             out[f'model_{i+1}'] = {'plddt': d['plddt'], 
-                                'pae':d['predicted_aligned_error']}
+                                'pae':d['predicted_aligned_error'],
+                                'ptm':d['ptm']}
     return out
  
 def generate_output_images(feature_dict, model_dicts, ranking_dict, 
@@ -56,7 +59,7 @@ def generate_output_images(feature_dict, model_dicts, ranking_dict,
     s = 0
     for model_name, value in pae_plddt_per_model.items():
         plt.plot(value["plddt"], 
-                 label=f"{model_name}, plddts: {round(list(ranking_dict['plddts'].values())[s], 6)}")
+                 label=f"{model_name}, plddt: {round(list(ranking_dict['plddts'].values())[s], 6)}, ptm: {round(float(value['ptm']), 6)}")
         s += 1
         
     plt.legend()
@@ -66,14 +69,11 @@ def generate_output_images(feature_dict, model_dicts, ranking_dict,
     plt.savefig(f"{out_dir}/{name+('_' if name else '')}LDDT.png")
     
     ###################### EXPORT LDDT PER POSITION PER MODEL ####################
-    plddt_df = ''
-    plt.figure(figsize=(14, 7), dpi=300)
-    for n, (model_name, value) in enumerate(pae_plddt_per_model.items()):
-        plt.clf()
-        plt.title(f"Predicted LDDT per position ({model_name})")
-        plt.plot(value["plddt"], 
-                 label=f"{model_name}, plddt: {round(list(ranking_dict['plddts'].values())[n], 6)}, ptm: {round(float(value['ptm']), 6)}")
-        plt.ylim(0, 100)
+    plddt_df = pd.DataFrame(columns = ['position'] + list(pae_plddt_per_model.keys()))
+    for model_name, value in pae_plddt_per_model.items():
+        plddt_df[model_name] = value["plddt"]
+    plddt_df['position'] = np.arange(1, plddt_df.shape[0] + 1)
+    plddt_df.to_csv(f"{out_dir}/plddts.csv", index = False, mode = 'w')    
     
     ################# PLOT THE PREDICTED ALIGNED ERROR################
     if (model_type == "monomer"):
@@ -83,7 +83,7 @@ def generate_output_images(feature_dict, model_dicts, ranking_dict,
     for n, (model_name, value) in enumerate(pae_plddt_per_model.items()):
         plt.clf()
         # plt.subplot(1, num_models, n + 1)
-        plt.title(f"{name} {model_name}")
+        plt.title(f"{name} {model_name} (plddt = {round(list(ranking_dict['plddts'].values())[n], 6)})")
         plt.imshow(value["pae"], label=model_name, cmap="bwr", vmin=0, vmax=30)
         plt.colorbar()
         plt.savefig(f"{out_dir}/{name+('_' if name else '')+model_name}_PAE.png")

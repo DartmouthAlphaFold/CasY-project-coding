@@ -1,4 +1,4 @@
-# Private storage of all codes used for CasY structure prediction project
+## Private storage of all codes used for CasY structure project
 
 ### Folder ./alphafold
 Scripts for running AlphaFold on Dartmouth's Discovery cluster:
