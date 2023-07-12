@@ -45,7 +45,6 @@ def get_sequence(args, input_files):
             seq_map[str(seq_record.id)] = sequence.upper()
             file_map[str(seq_record.id)] = input_file
             
-    logger.debug(seq_map.items())
     logger.info(f"Reading {len(seq_map)} sequences: \n {', '.join(seq_map.keys())}")
     return seq_map, file_map
 
@@ -61,7 +60,6 @@ def phmmer(args, name, sequence):
     Send API to search protein sequence against databases using pHMMER
     Receive and export subjects found into a metadata file
     '''
-    
     # get params
     sequence_db=args.database
     range=args.range
@@ -86,33 +84,42 @@ def phmmer(args, name, sequence):
         
     results_url = results.get('location')
     session_id = urlparse(results_url).path.split("/")[-2]
-
-    # modify the range in results
     res_params = {
         'output': 'json',
         'range': f'1,{str(range)}'
     }
 
-    # add the parameters to your request for the results
+    # send a GET request to obtain result
     enc_res_params = urlencode(res_params)
     modified_res_url = results_url + '?' + enc_res_params
     # https://www.ebi.ac.uk/Tools/hmmer/results/{uuid}/score
     
-    # send a GET request to the server
-    results_request = Request(modified_res_url)
-    try:
-        data = urlopen(results_request)
-    except Exception as e:
-        logger.error(f"Failed to get {name} results: {e.msg}")
-        return
-
-    # write the results
-    if (data.status == 200):
-        output_file = f'{output_dir}/metadata/{name}.{str(len(sequence))}.{session_id}.json'
-        with open(output_file, 'w') as f:
-            f.write(data.read().decode('utf-8'))
-    else:
-        logger.info(f'{data.status}\n{data.msg}\n{data.reason}\n{data.url}')
+    retries = 0
+    while True:
+        if (retries >= 10):
+            logger.warning(f"{name} search job was queued longer than expected."
+                           f"\nAccess {results_url} manually later to view results.")
+            break
+        
+        results_request = Request(modified_res_url)
+        response = urlopen(results_request)
+        
+        if (response.status == 200):
+            content_type = response.headers['content-type']
+            
+            if 'application/json' in content_type:
+                output_file = f'{output_dir}/metadata/{name}.{str(len(sequence))}.{session_id}.json'
+                with open(output_file, 'w') as f:
+                    f.write(response.read().decode('utf-8'))
+                logger.info(f'Fetched result for {name}')
+                break
+            if 'text/html' in content_type:
+                retries += 1
+                logger.debug(f'Job in queue. Tried to fetch {name} result {retries} times')
+                time.sleep(30)
+        else:
+            logger.error(f'{response.status}\n{response.msg}\n{response.reason}\n{response.url}')
+            break
         
 
 @timer
@@ -161,9 +168,7 @@ def read_json(args):
             
             num_hits = results['stats']['nhits']
             if (num_hits > 0):
-                sig_num_hits = 0
-                # downloaded_num_hits = 0
-                
+                sig_num_hits = 0                
                 for hit in results['hits']:
                     # skip insignificant hits
                     if (float(hit['evalue']) >= args.evalue):
@@ -184,14 +189,14 @@ def read_json(args):
                     else:
                         dict_by_name[hit['name']] = 1              
                     
-                    logger.debug(f"{hit['name']}\n{hit['species']}\n{hit['desc']}\ne-value = {hit['evalue']}\n"
-                    f"bit score = {hit['score']}\n{hit['extlink']}\n") 
+                    # logger.debug(f"{hit['name']}\n{hit['species']}\n{hit['desc']}\ne-value = {hit['evalue']}\n"
+                    # f"bit score = {hit['score']}\n{hit['extlink']}\n") 
 
                 logger.info(f"{query_name}: {sig_num_hits}/{num_hits} hits")
             else:
                 logger.info(f"{query_name}: no hits were found")
                 
-    logger.info(f'Found {len(dict_by_name)} hits in total')
+    logger.info(f'Found {len(dict_by_name)} significant hits in total')
     for key, value in dict_by_name.items():
         logger.info(f'{key}: {value} times') 
     
@@ -222,13 +227,12 @@ def download_seq (args, seq_id):
     # write sequence
     if (hit_seq_response.status == 200):
         content = hit_seq_response.read().decode('utf-8')
-        seq_output = f"{args.output}/fasta/{seq_id}.fa"
-        
+        seq_output = f"{args.output}/fasta/{seq_id}.fa"     
         with open(seq_output, 'w') as f:
             f.write(content)
         logger.info(f"{seq_id} downloaded")
     else:
-        logger.debug(f'{hit_seq_response.status}\n{hit_seq_response.msg}\n{hit_seq_response.reason}\n{hit_seq_response.url}\n')
+        logger.error(f'{hit_seq_response.status}\n{hit_seq_response.msg}\n{hit_seq_response.reason}\n{hit_seq_response.url}\n')
         
 
 @timer
@@ -301,25 +305,6 @@ def filter_duplicates(args):
             output.write(content)
         count += 1
     logger.info(f"Finished writing {count} sequences")
-    
-
-# create a logger
-logger = logging.getLogger('logger')
-logger.setLevel(logging.INFO)
-
-# Create a console handler and set the log level
-console_handler = logging.StreamHandler()
-console_handler.setLevel(logging.INFO)
-
-# Create a formatter for the log messages
-log_formatter = logging.Formatter('%(asctime)19s - %(levelname)s - %(message)s',
-                                  "%Y-%m-%d %H:%M:%S")
-
-# Add the formatter to the handlers
-console_handler.setFormatter(log_formatter)
-
-# Add the handlers to the logger
-logger.addHandler(console_handler)    
 
 
 def str_to_bool(v):
@@ -331,9 +316,21 @@ def str_to_bool(v):
         return False
     else:
         import argparse
-        raise argparse.ArgumentTypeError('Boolean value expected.')            
-            
-            
+        raise argparse.ArgumentTypeError('Boolean value expected.')  
+
+
+# create a logger
+logger = logging.getLogger('logger')
+logger.setLevel(logging.DEBUG)
+# create a console handler
+console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.INFO)
+console_log_formatter = logging.Formatter("%(asctime)s\t%(message)s", "%Y-%m-%d %H:%M:%S")
+console_handler.setFormatter(console_log_formatter)
+# add the handler to the logger
+logger.addHandler(console_handler)    
+
+           
 def main():
     parser = argparse.ArgumentParser(description="A simple CLI tool for pHMMER-based sequence searching on multiple databases, "
                                      "using the API available at https://www.ebi.ac.uk/Tools/hmmer/search/phmmer.")
@@ -353,8 +350,6 @@ def main():
                         help="Reference Proteomes, UniProtKB, SwissProt, PDB, AlphaFold ")
                         # ", Ensembl (all/human/mouse/zebrafish), Ensembl Genomes (all/bacteria/fungi/metazoa/plants/protists)"
                         # ", Representative Proteomes (rp75/rp55/rp35/rp15), MEROPS, Quest for Orthologs, ChEMBL (default: uniprotkb)")
-    parser.add_argument('--debug', type=str_to_bool, default = False,
-                        help="Print detailed info for debugging. (default: False)")
     args = parser.parse_args()
     
     # make output directories
@@ -366,15 +361,13 @@ def main():
         os.mkdir(os.path.join(args.output, 'fasta'))
     
     inputs = args.input.split(",")  # get input files
-    
-    # set logging level
-    if args.debug:
-        logger.setLevel(logging.DEBUG)
         
-    # Create a logfile handler
+    # create a file log handler
     file_handler = logging.FileHandler(os.path.join(args.output, 'phmmer_debug.log'), mode = 'w')
     file_handler.setLevel(logging.DEBUG)
-    file_handler.setFormatter(log_formatter)
+    file_log_formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s",
+                                  "%Y-%m-%d %H:%M:%S")
+    file_handler.setFormatter(file_log_formatter)
     logger.addHandler(file_handler)
     
     
@@ -390,15 +383,5 @@ def main():
     
 if __name__=="__main__":
     main()
-    
-    # args = argparse.ArgumentParser().parse_args()
-    # args.evalue = 0.01
-    # args.debug = False
-    # args.database = 'uniprotkb'
-    # args.output = "C:/XResearch/phmmer/test_thread_1"
-    # args.input = "C:/XResearch/Amino_Acids/FASTA/Cas12cd.fa"
-    # seq_id_list = read_json(args)
-    # thread_download_seq(args, seq_id_list)
-    # filter_duplicates(args)
     
     

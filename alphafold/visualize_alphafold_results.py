@@ -3,6 +3,7 @@ import glob
 import pickle
 import json
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
 import sys
  
@@ -63,6 +64,16 @@ def generate_output_images(feature_dict, model_dicts, ranking_dict,
     plt.ylabel("Predicted LDDT")
     plt.xlabel("Positions")
     plt.savefig(f"{out_dir}/{name+('_' if name else '')}LDDT.png")
+    
+    ###################### EXPORT LDDT PER POSITION PER MODEL ####################
+    plddt_df = ''
+    plt.figure(figsize=(14, 7), dpi=300)
+    for n, (model_name, value) in enumerate(pae_plddt_per_model.items()):
+        plt.clf()
+        plt.title(f"Predicted LDDT per position ({model_name})")
+        plt.plot(value["plddt"], 
+                 label=f"{model_name}, plddt: {round(list(ranking_dict['plddts'].values())[n], 6)}, ptm: {round(float(value['ptm']), 6)}")
+        plt.ylim(0, 100)
     
     ################# PLOT THE PREDICTED ALIGNED ERROR################
     if (model_type == "monomer"):
