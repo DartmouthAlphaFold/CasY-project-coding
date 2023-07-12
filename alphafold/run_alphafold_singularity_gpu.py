@@ -1,9 +1,9 @@
-#!/usr/bin/python3
+#!/usr/bin/env python3
 
 """
-Python launch script for Alphafold on Dartmouth HPC cluster
+Python launch script for AlphaFold on Dartmouth HPC cluster
 By Duc Nguyen '24, Colby College
-Updated on 2023-04-29
+Updated on 2023-04-30
 
 In order to run the program, go to the lab folder /dartfs/rc/lab/H/HowellA/ on Discovery, 
 adjust and submit the Slurm script `run_alphafold_singularity_gpu.sh`.
@@ -16,7 +16,7 @@ For a typical run using GPU, no relaxation, the command is
   --output_dir <output_dir>`
   
 Right now there is a bug that prevents running OpenMM relaxation on GPU.
-If you set `--run_relax True`, please set `--use_gpu_relax False` as well to run relaxation on CPUs only.
+If you set `--run_relax True`, please leave `--use_gpu_relax False` as well to run relaxation on CPUs only.
 """
 
 def parse_args():
@@ -104,6 +104,7 @@ def parse_args():
   args = parser.parse_args()
   return args
 
+
 def str_to_bool(v):
     if isinstance(v, bool):
         return v
@@ -114,6 +115,7 @@ def str_to_bool(v):
     else:
         import argparse
         raise argparse.ArgumentTypeError('Boolean value expected.')
+
 
 def main():
 
@@ -244,6 +246,7 @@ def main():
       shell = True, 
       executable = '/bin/bash',
       check = True)
+
 
 if __name__ == '__main__':
   main()

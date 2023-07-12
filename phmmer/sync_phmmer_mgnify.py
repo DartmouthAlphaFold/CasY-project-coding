@@ -11,6 +11,23 @@ import re
 import logging
 import hashlib
 import threading
+from functools import wraps
+
+
+# define wrapper function first
+def timer(progress_func):
+    '''
+    Measure how much time each function executed
+    '''
+    @wraps(progress_func)
+    def wrapper(*args, **kwargs):
+        start_time = time.time()
+        result = progress_func(*args, **kwargs)
+        end_time = time.time()
+        execution_time = end_time - start_time
+        logger.info(f"Step {progress_func.__name__} took {execution_time:.3f} seconds")
+        return result
+    return wrapper
 
 
 def get_sequence(args, input_files):
@@ -283,6 +300,18 @@ def str_to_bool(v):
     else:
         import argparse
         raise argparse.ArgumentTypeError('Boolean value expected.')            
+
+
+# create a logger
+logger = logging.getLogger('logger')
+logger.setLevel(logging.DEBUG)
+# create a console handler
+console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.INFO)
+console_log_formatter = logging.Formatter("%(asctime)s\t%(message)s", "%Y-%m-%d %H:%M:%S")
+console_handler.setFormatter(console_log_formatter)
+# add the handler to the logger
+logger.addHandler(console_handler)   
             
             
 def main():
@@ -321,6 +350,16 @@ def main():
     
     inputs = args.input.split(",")  # get input files
     
+    
+    # create a file log handler
+    file_handler = logging.FileHandler(os.path.join(args.output, 'phmmer_debug.log'), mode = 'w')
+    file_handler.setLevel(logging.DEBUG)
+    file_log_formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s",
+                                  "%Y-%m-%d %H:%M:%S")
+    file_handler.setFormatter(file_log_formatter)
+    logger.addHandler(file_handler)
+    
+    
     start_time = time.time()
     seq_map, inputfile_map = get_sequence(args, inputs)
     thread_phmmer(args, seq_map)
@@ -333,15 +372,4 @@ def main():
     
 if __name__=="__main__":
     main()
-    
-    # args = argparse.ArgumentParser().parse_args()
-    # args.evalue = 0.01
-    # args.debug = False
-    # args.database = 'full'
-    # args.output = "./phmmer/mgnify_sync_Cas12cd_test_v2"
-    # args.input = "./Amino_Acids/FASTA/Cas12cd.fa"
-    # seq_id_list = read_json(args)
-    # thread_download_seq(args, seq_id_list)
-    # filter_duplicates(args)
-    
     
