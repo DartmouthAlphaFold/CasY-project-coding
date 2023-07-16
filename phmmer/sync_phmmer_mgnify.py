@@ -30,6 +30,7 @@ def timer(progress_func):
     return wrapper
 
 
+@timer
 def get_sequence(args, input_files):
     '''
     Fetch all sequences from a list of FASTA files
@@ -44,8 +45,7 @@ def get_sequence(args, input_files):
             seq_map[str(seq_record.id)] = sequence.upper()
             file_map[str(seq_record.id)] = input_file
             
-    if args.debug: print(seq_map.items())
-    print(f"\nReading {len(seq_map)} sequences: \n {', '.join(seq_map.keys())}")
+    logger.info(f"Reading {len(seq_map)} sequences: \n {', '.join(seq_map.keys())}")
     return seq_map, file_map
 
 
@@ -60,7 +60,6 @@ def phmmer(args, name, sequence):
     Send API to search protein sequence against databases using pHMMER
     Receive and export subjects found into a metadata file
     '''
-    
     # get params
     sequence_db=args.database
     range=args.range
@@ -80,57 +79,72 @@ def phmmer(args, name, sequence):
     try:
         results = urlopen(request)
     except Exception as e:
-        print(f"Failed to search for {name}: {e.msg}")
+        logger.error(f"Failed to search for {name}: {e.msg}")
         return
         
     results_url = results.get('location')
     session_id = urlparse(results_url).path.split("/")[-2]
-
-    # modify the range in results
     res_params = {
         'output': 'json',
         'range': f'1,{str(range)}'
     }
 
-    # add the parameters to your request for the results
+    # send a GET request to obtain result
     enc_res_params = urlencode(res_params)
     modified_res_url = results_url + '?' + enc_res_params
     # https://www.ebi.ac.uk/metagenomics/sequence-search/results/{uuid}/score
     
-    # send a GET request to the server
-    results_request = Request(modified_res_url)
-    try:
-        data = urlopen(results_request)
-    except Exception as e:
-        print(f"Failed to get {name} results: {e.msg}")
-        return
-
-    # write the results
-    if (data.status == 200):
-        output_file = f'{output_dir}/metadata/{name}.{str(len(sequence))}.{session_id}.json'
-        with open(output_file, 'w') as f:
-            f.write(data.read().decode('utf-8'))
-    else:
-        print(f'{data.status}\n{data.msg}\n{data.reason}\n{data.url}')
+    retries = 0
+    while True:
+        if (retries >= 10):
+            logger.warning(f"{name} search job was queued longer than expected."
+                           f"\nAccess {results_url} manually later to view results.")
+            break
         
-    
+        results_request = Request(modified_res_url)
+        response = urlopen(results_request)
+        
+        if (response.status == 200):
+            content_type = response.headers['content-type']
+            
+            if 'application/json' in content_type:
+                output_file = f'{output_dir}/metadata/{name}.{str(len(sequence))}.{session_id}.json'
+                with open(output_file, 'w') as f:
+                    f.write(response.read().decode('utf-8'))
+                logger.info(f'Fetched result for {name}')
+                break
+            if 'text/html' in content_type:
+                retries += 1
+                logger.debug(f'Job in queue. Tried to fetch {name} result {retries} times')
+                time.sleep(30)
+        else:
+            logger.error(f'{response.status}\n{response.msg}\n{response.reason}\n{response.url}')
+            break
+        
+
+@timer    
 def thread_phmmer(args, seq_map):
     '''
     Create threads and search for sequences simultaneously
     '''
     threads = []  # list to hold all the threads
+    logger.info(f'Performing {len(seq_map)} searches')
+
     for name, sequence in seq_map.items():
         # create a thread for each query
         thread = threading.Thread(target=phmmer, args=(args, name, sequence,))
+        
+        # start thread after delay
+        time.sleep(10)
         thread.start()
         threads.append(thread)
     
-    print(f'\nPerforming {len(threads)} searches:')
     # wait for all threads to finish
     for thread in threads:
         thread.join()
     
 
+@timer
 def read_json(args):
     '''
     Read the metadata in JSON format and return a map of unique sequence names
@@ -138,7 +152,7 @@ def read_json(args):
     json_files = [file for file in os.listdir(os.path.join(args.output,'metadata')) if file.endswith('.json')]
     dict_by_name = {}  # dictionary that holds all unique sequence names
     dict_with_id = {}
-    print(f'\nReading {len(json_files)} search results:')
+    logger.info(f'Reading {len(json_files)} search results:')
     
     for file in json_files:
         data = file.split('.')
@@ -149,16 +163,12 @@ def read_json(args):
             try:
                 results = json.load(f)['results']
             except Exception as e:
-                print(f"Cannot read results for {query_name}. Skipping to next file.")
-                print(e)
-                print("\n")
+                logger.error(f"Cannot read results for {query_name}. Skipping to next file. error: {str(e)}")
                 continue
-            num_hits = results['stats']['nhits']
             
+            num_hits = results['stats']['nhits']
             if (num_hits > 0):
                 sig_num_hits = 0
-                # downloaded_num_hits = 0
-                
                 for hit in results['hits']:
                     # skip insignificant hits
                     if (float(hit['evalue']) >= args.evalue):
@@ -180,17 +190,16 @@ def read_json(args):
                         dict_by_name[hit['name']] = 1  
                         dict_with_id[hit['name']] = hit['sindex']           
                     
-                    if args.debug:
-                        print(f"{hit['name']}\n{hit['species']}\n{hit['desc']}\n{hit['evalue']}\n"
-                        f"{hit['score']}\n{hit['extlink']}\n") 
+                    # print(f"{hit['name']}\n{hit['species']}\n{hit['desc']}\n{hit['evalue']}\n"
+                    #     f"{hit['score']}\n{hit['extlink']}\n") 
 
-                print(f"{query_name}: {sig_num_hits}/{num_hits} hits")
+                logger.info(f"{query_name}: {sig_num_hits}/{num_hits} hits")
             else:
-                print(f"{query_name}: no hits were found")
+                logger.info(f"{query_name}: no hits were found")
                 
-    print(f'\nFound {len(dict_by_name)} hits in total:')
+    logger.info(f'Found {len(dict_by_name)} significant hits in total:')
     for key, value in dict_by_name.items():
-        print(f'{key}: {value} times') 
+        logger.info(f'{key}: {value} times') 
     return dict_with_id
 
 
@@ -206,41 +215,44 @@ def download_seq (args, seq_id, seq_ac):
     try:
         hit_seq_response = urlopen(hit_seq_request)
     except Exception as e:
-        print(f"Failed to download {seq_ac}: {e.msg}")
+        logger.error(f"Failed to download {seq_ac}: {e.msg}")
         return
     
     # write sequence
     if (hit_seq_response.status == 200):
         seq_output = f"{args.output}/fasta/{seq_ac}.fa"
-        
         with open(seq_output, 'w') as f:
-            # soup = BeautifulSoup(hit_seq_response.read().decode('utf-8'), 'html.parser')
-            # content = soup.find('pre').string
             content = hit_seq_response.read().decode('utf-8')
             content = re.sub(r'<pre.*?>|</pre>', '', content)
             f.write(content)
-        print(f"\t{seq_ac} downloaded")
+        logger.info(f"Downloaded {seq_ac} from {hit_seq_url}")
     else:
-        if args.debug: print(f'{hit_seq_response.status}\n{hit_seq_response.msg}\n{hit_seq_response.reason}\n{hit_seq_response.url}\n')
+        logger.error(f'{hit_seq_response.status}\n{hit_seq_response.msg}\n{hit_seq_response.reason}\n{hit_seq_response.url}\n')
         
-    
+
+@timer
 def thread_download_seq (args, dict_with_id):
     '''
     Create threads and download sequences simultaneously
     '''
     threads = []  # list to hold all the threads
+    logger.info(f"Downloading {len(dict_with_id)} sequences")
+    
     for seq_ac, seq_id in dict_with_id.items():
         # create a thread for each query
         thread = threading.Thread(target=download_seq, args=(args, seq_id, seq_ac))
+        
+        # start thread after delay
+        time.sleep(1)
         thread.start()
         threads.append(thread)
     
-    print(f"\nDownloading {len(threads)} sequences:")
     # wait for all threads to finish
     for thread in threads:
         thread.join()
 
 
+@timer
 def filter_duplicates(args):
     '''
     Filter duplicated sequences among subjects and between queries and subjects
@@ -251,7 +263,7 @@ def filter_duplicates(args):
     subject_folder = os.path.join(args.output, 'fasta')
     subject_files = [os.path.join(subject_folder, file) for file in os.listdir(subject_folder) if file.endswith('.fa')]
     seq_map, file_map = get_sequence(args, query_files + subject_files)
-    print(f"\nComparing {len(seq_map)} sequences:")
+    logger.info(f"Comparing {len(seq_map)} sequences:")
     
     hash_dict = {}  # dictionary to store hash values
     # generate hash values for each sequence
@@ -273,21 +285,21 @@ def filter_duplicates(args):
     # compare sequences with the same hash value
     for hash_value, sequence_list in hash_dict.items():
         if len(sequence_list) > 1:
-            print(f"{', '.join(sequence_list)} are identical")
+            logger.warning(f"{', '.join(sequence_list)} are identical")
 
         # write the 1st sequence from each hash value, skip if it is one of the queries
         first_id = sequence_list[0]
         if (file_map[first_id] in query_files):
             continue
         
-        print(f'\nWriting {first_id}\n')
+        logger.info(f'Writing {first_id}')
         valid_seq_file = file_map[first_id]
         with open(valid_seq_file, 'r') as input:
             content = input.read()
         with open(result_file, 'a') as output:
             output.write(content)
         count += 1
-    print(f"Finished writing {count} sequences")
+    logger.info(f"Finished writing {count} sequences")
             
 
 def str_to_bool(v):
@@ -336,8 +348,6 @@ def main():
                         "Environment: aquatic, marine, freshwater, or soil."
                         "Host-associated biome: human, human disgestive system, human non-digestive, or animal."
                         "Other biomes/environments: engineered or other. (default: full)")
-    parser.add_argument('--debug', type=str_to_bool, default = False,
-                        help="Print detailed info for debugging. (default: False)")
     args = parser.parse_args()
     
     # make output directories
@@ -367,7 +377,7 @@ def main():
     thread_download_seq(args, download_seq_ids)
     filter_duplicates(args)
     end_time = time.time()
-    print(f"Finished in {round(end_time - start_time, 3)} seconds")
+    logger.info(f"Finished in {round(end_time - start_time, 3)} seconds")
     
     
 if __name__=="__main__":

@@ -14,9 +14,9 @@ def get_sequence(input_files):
         for seq_record in SeqIO.parse(input_file.strip(), "fasta"):
             if len(seq_record.seq) == 0:
                 continue
-            sequence = re.sub('[\*\-]', '', str(seq_record.seq))  # remove '*' and '-' characters
+            sequence = re.sub('[\*\-\t]', '', str(seq_record.seq))  # remove '*', '-', and tabs
             seq_map[str(seq_record.description)] = sequence.upper()
-    print(f"\nFound {len(seq_map)} sequences: \n{''.join(seq_map.keys())}")
+    print(f"\nFound {len(seq_map)} sequences: \n{', '.join(seq_map.keys())}")
     return seq_map
 
 
