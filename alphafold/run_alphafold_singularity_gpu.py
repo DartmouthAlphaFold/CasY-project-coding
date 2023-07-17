@@ -1,22 +1,18 @@
 #!/usr/bin/env python3
 
 """
-Python launch script for AlphaFold on Dartmouth HPC cluster
+Python launch script for AlphaFold 2.3.2 on Dartmouth HPC cluster
 By Duc Nguyen '24, Colby College
-Updated on 2023-04-30
+Updated on 2023-07-16
 
-In order to run the program, go to the lab folder /dartfs/rc/lab/H/HowellA/ on Discovery, 
-adjust and submit the Slurm script `run_alphafold_singularity_gpu.sh`.
-
-For a typical run using GPU, no relaxation, the command is
+In order to run ALphaFold, adjust and submit the Slurm script `run_alphafold_singularity_gpu.sh` in the lab folder.
+For a typical run using GPU with GPU-based relaxation, the command is
 
 `python3 run_alphafold_singularity_gpu.py \
   --fasta_paths <path_to_fasta_files> \
   --max_template_date <date_before_experimental_release_date_on_PDB> \
   --output_dir <output_dir>`
-  
-Right now there is a bug that prevents running OpenMM relaxation on GPU.
-If you set `--run_relax True`, please leave `--use_gpu_relax False` as well to run relaxation on CPUs only.
+
 """
 
 def parse_args():
@@ -41,14 +37,22 @@ def parse_args():
     '--gpu_devices', default=os.environ.get('all', '0'),
     help='Comma separated list GPU identifiers to set environment variable CUDA_VISIBLE_DEVICES. '
     'Not recommended to pass this variable manually, as GPUs on Discovery are allocated via Slurm.')
-
+ 
   parser.add_argument(
-    '--run_relax', type=str_to_bool, default=False,
-    help='Whether to do OpenMM energy minimization of each predicted structure.')
-
+    '--models_to_relax', default ='best',
+    choices=['best', 'all', 'none'],
+    help = 'The models to run the final relaxation step on. '
+            'If `all`, all models are relaxed, which may be time '
+            'consuming. If `best`, only the most confident model '
+            'is relaxed. If `none`, relaxation is not run. Turning '
+            'off relaxation might result in predictions with '
+            'distracting stereochemical violations but might help '
+            'in case you are having issues with the relaxation '
+            'stage.')
+  
   parser.add_argument(
-    '--use_gpu_relax', type=str_to_bool, default=False,
-    help='Whether to do OpenMM energy minimization using GPU.')
+    '--use_gpu_relax', type=str_to_bool, default=True,
+    help='Whether to do OpenMM energy minimization (relaxation) using GPU.')
 
   parser.add_argument(
     '--output_dir', default='alphafold-output',
@@ -64,7 +68,7 @@ def parse_args():
     help='Path to directory where databases reside.')
 
   parser.add_argument(
-    '--singularity_image_path', default='/dartfs/rc/lab/H/HowellA/AlphaFold.2.3.0/alphafold230.sif',
+    '--singularity_image_path', default='/dartfs/rc/lab/H/HowellA/AlphaFold/alphafold_232.sif',
     help='Path to the AlphaFold singularity image.')
 
   parser.add_argument(
@@ -100,7 +104,7 @@ def parse_args():
     '--use_precomputed_msas', default=False,
     help='Whether to read MSAs that have been written to disk. WARNING: This will '
     'not check if the sequence, database or configuration have changed.')
-
+  
   args = parser.parse_args()
   return args
 
@@ -199,7 +203,7 @@ def main():
       f'--db_preset={args.db_preset}',
       f'--model_preset={args.model_preset}',
       f'--num_multimer_predictions_per_model={args.num_multimer_predictions_per_model}',
-      f'--run_relax={args.run_relax}',
+      f'--models_to_relax={args.models_to_relax}',
       f'--use_gpu_relax={args.use_gpu_relax}',
       f'--benchmark={args.benchmark}',
       f'--use_precomputed_msas={args.use_precomputed_msas}',
@@ -214,25 +218,23 @@ def main():
   #         'TF_FORCE_UNIFIED_MEMORY': '1',
   #         'XLA_PYTHON_CLIENT_MEM_FRACTION': '4.0',
   # }
-  
   # env_vals = ','.join('%s=%s' % (key,value) for key,value in env_vars.items())
-
+  
   
   # AlphaFold uses Python tempfile which uses TMPDIR env variable
   # which is /scratch on Discovery. Otherwise Python will use /tmp
-  # which is only 4 GB available and will cause write errors on large sequences.
+  # which is only 10 GB available and may cause write errors on large sequences.
   import os
   tempdir = os.environ.get('TMPDIR', '/scratch')
 
   args = ['singularity',
           'run',
-          '--nv',  # Enable NVIDIA
+          '--nv',                             # Enable NVIDIA
           '-B "%s"' % args.mount_data_dir,    # Mount AlphaFold databases
-          '-B /optnfs/el7/cuda/11.2/lib64', # Mount to link to CUDA libraries
-          '-B "%s"' % os.getcwd(),	# Mount current directory for sequence
-          '-B "%s"' % tempdir,		# Mount scratch directory
-          '-B .:/etc', # Mount the current working directory to container to write ld.so.cache file
-          # '--pwd /app/alphafold',  # Launch from /app/alphafold inside the container 
+          '-B /optnfs/el7/cuda/11.2/lib64',   # Mount to link to CUDA libraries
+          '-B /dartfs/rc/lab/H/HowellA',      # Mount to lab folder to write files
+          '-B "%s"' % tempdir,		            # Mount scratch directory
+          # '-B .:/etc', # Mount the current working directory to container to write ld.so.cache file
           # '--env %s' % env_vals, 
           args.singularity_image_path
         ] + command_args
