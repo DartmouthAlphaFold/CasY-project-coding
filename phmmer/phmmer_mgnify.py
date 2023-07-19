@@ -239,12 +239,13 @@ def thread_download_seq (args, dict_with_id):
     threads = []  # list to hold all the threads
     logger.info(f"Downloading {len(dict_with_id)} sequences")
     
-    for seq_ac, seq_id in dict_with_id.items():
+    for n, (seq_ac, seq_id) in enumerate(dict_with_id.items()):
         # create a thread for each query
         thread = threading.Thread(target=download_seq, args=(args, seq_id, seq_ac))
         
         # start thread after delay
-        time.sleep(1)
+        if n > 0:
+            time.sleep(1)
         thread.start()
         threads.append(thread)
     
@@ -349,6 +350,9 @@ def main():
                         "Environment: aquatic, marine, freshwater, or soil."
                         "Host-associated biome: human, human disgestive system, human non-digestive, or animal."
                         "Other biomes/environments: engineered or other. (default: full)")
+    parser.add_argument('--reference', '-ref', 
+                        help="File containing reference sequences in FASTA format for checking duplicates."
+                        "If not specified, input sequences will be used as reference")
     args = parser.parse_args()
     
     # make output directories

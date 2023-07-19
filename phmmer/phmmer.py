@@ -266,10 +266,10 @@ def filter_duplicates(args):
     Export into a FASTA file 
     '''
     # combine queries and subjects into a map
-    query_files = args.reference.split(",") if args.reference else args.input.split(",")
+    ref_files = args.reference.split(",") if args.reference else args.input.split(",")
     subject_folder = os.path.join(args.output, 'fasta')
     subject_files = [os.path.join(subject_folder, file) for file in os.listdir(subject_folder) if file.endswith('.fa')]
-    seq_map, file_map = get_sequence(args, query_files + subject_files)
+    seq_map, file_map = get_sequence(args, ref_files + subject_files)
     logger.info(f"Comparing {len(seq_map)} sequences")
     
     hash_dict = {}  # dictionary to store hash values
@@ -296,7 +296,7 @@ def filter_duplicates(args):
 
         # write the 1st sequence from each hash value, skip if it is one of the queries
         first_id = sequence_list[0]
-        if (file_map[first_id] in query_files):
+        if (file_map[first_id] in ref_files):
             continue
         
         logger.info(f'Writing {first_id}')
