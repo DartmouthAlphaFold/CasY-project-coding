@@ -1,16 +1,19 @@
 import sys
 import os
+import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
 from bs4 import BeautifulSoup
+import seaborn as sns
 
-# cd C:/XResearch
+# cd <folder of thie script>
 # runscript matchmaker.py <input folder> <output folder>
 # e.g. runscript matchmaker.py "C:\XResearch\Proteins\CasY-Predictions-Rank0" "C:\XResearch\Matchmaking\CasYvsCas12c" 
 
 
 def get_proteins(input_dir, chosen_proteins = None):
     '''
-    Get the list of proteins from protein files
+    Get the list of proteins from input filenames
     '''
     files = [f for f in os.listdir(input_dir)]
     if chosen_proteins is not None:
@@ -75,7 +78,8 @@ def read_html_file(input_file: str, verbose = False):
 
 def match(proteins, input_dir, output_dir):
     '''
-    Match proteins, print output to HTML format, then read HTML file to create matrices
+    Match proteins, print output to HTML format, then read HTML file to print out matrices
+    Return 
     '''
     protein_names = list(map(lambda x: x.split(".")[0], proteins))
     
@@ -115,16 +119,44 @@ def match(proteins, input_dir, output_dir):
             all_rmsd_mat.loc[protein1_name, protein2_name] = all_rmsd
             pruned_over_all_atom_mat.loc[protein1_name, protein2_name] = round(pruned_atom_pairs/all_atom_pairs, 3)
             
-    # write to excel        
-    writer = pd.ExcelWriter(f'{output_dir}/alignment.xlsx', engine="xlsxwriter")
+            # remove the html file
+            if os.path.exists(html_file):
+                os.remove(html_file) 
+            
+    # write to excel    
+    matrix_file = f'{output_dir}/alignment.xlsx' 
+    writer = pd.ExcelWriter(matrix_file, engine="xlsxwriter")
     alignment_score_mat.to_excel(writer, sheet_name="Alignment score")
     all_rmsd_mat.to_excel(writer, sheet_name="RMSD (All pairs)")
     all_atom_pairs_mat.to_excel(writer, sheet_name="All atom pairs")
     pruned_rmsd_mat.to_excel(writer, sheet_name="RMSD between pruned atom pairs")
     pruned_atom_pairs_mat.to_excel(writer, "Pruned atom pairs")   
     pruned_over_all_atom_mat.to_excel(writer, "Pruned over All ratio")
-    writer.close()     
+    writer.close()    
+     
+    return matrix_file
     
+
+def heatmap(matrix_file, output_dir):
+    '''
+    Plot heatmaps and hierarchical clustering tree for each distance matrices
+    '''
+    excel_data = pd.read_excel(matrix_file, sheet_name=None, header=0, index_col=0)
+    for sheet_name, sheet_data in excel_data.items():
+        full_matrix = pd.DataFrame(np.tril(sheet_data) + np.tril(sheet_data, -1).T)
+        full_matrix.index = sheet_data.index
+        full_matrix.columns = sheet_data.columns    
+        # UPGMA
+        sns.clustermap(full_matrix, annot=True, method="average", col_cluster=False,
+                    cmap='YlOrRd', fmt = "g", annot_kws={"size": 150/full_matrix.shape[0]}, figsize=(13, 10))
+        plt.title(sheet_name)
+        
+        # write file
+        plot_name = f'{output_dir}/{sheet_name}.png'
+        if os.path.exists(plot_name):
+            os.remove(plot_name)
+        plt.savefig(plot_name)
+
 
 def main():
     if (len(sys.argv) < 3):
@@ -139,6 +171,7 @@ def main():
     else:
         proteins = get_proteins(input_dir)
     
-    match(proteins, input_dir, output_dir)
+    matrix_file = match(proteins, input_dir, output_dir)
+    heatmap(matrix_file, output_dir)
 
 main()
