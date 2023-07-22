@@ -8,7 +8,7 @@ import seaborn as sns
 
 # cd <folder of thie script>
 # runscript matchmaker.py <input folder> <output folder>
-# e.g. runscript matchmaker.py "C:\XResearch\Proteins\CasY-Predictions-Rank0" "C:\XResearch\Matchmaking\CasYvsCas12c" 
+# e.g. runscript matchmaker.py "C:\XResearch\Archive_PDB\Cas" "C:\XResearch\Matchmaking\allCas" 
 
 
 def get_proteins(input_dir, chosen_proteins = None):
@@ -149,7 +149,6 @@ def heatmap(matrix_file, output_dir):
         # UPGMA
         sns.clustermap(full_matrix, annot=True, method="average", col_cluster=False,
                     cmap='YlOrRd', fmt = "g", annot_kws={"size": 150/full_matrix.shape[0]}, figsize=(13, 10))
-        plt.title(sheet_name)
         
         # write file
         plot_name = f'{output_dir}/{sheet_name}.png'
@@ -171,7 +170,11 @@ def main():
     else:
         proteins = get_proteins(input_dir)
     
+    if not os.path.exists(output_dir):
+        os.mkdir(output_dir)
+    
     matrix_file = match(proteins, input_dir, output_dir)
     heatmap(matrix_file, output_dir)
+
 
 main()
