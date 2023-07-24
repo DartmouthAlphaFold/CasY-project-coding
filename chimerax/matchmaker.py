@@ -8,7 +8,7 @@ import seaborn as sns
 
 # cd <folder of thie script>
 # runscript matchmaker.py <input folder> <output folder>
-# e.g. runscript matchmaker.py "C:\XResearch\Archive_PDB\Cas" "C:\XResearch\Matchmaking\allCas" 
+# e.g. runscript matchmaker.py "C:\XResearch\Archive_PDB\Cas" "C:\XResearch\Matchmaking\allCas_ssonly" 
 
 
 def get_proteins(input_dir, chosen_proteins = None):
@@ -76,7 +76,7 @@ def read_html_file(input_file: str, verbose = False):
             "all_rmsd": all_rmsd}
 
 
-def match(proteins, input_dir, output_dir):
+def match(proteins, input_dir, output_dir, ssFraction):
     '''
     Match proteins, print output to HTML format, then read HTML file to print out matrices
     Return 
@@ -96,7 +96,7 @@ def match(proteins, input_dir, output_dir):
         for j in range(i, len(proteins)):
             # match and print to html
             run(session, f'open {input_dir}\{proteins[i]} {input_dir}\{proteins[j]}')
-            run(session, 'match #1 to #2')
+            run(session, f'match #1 to #2 ssFraction {ssFraction}')
             html_file = f'{output_dir}\{os.path.splitext(proteins[i])[0]}.vs.{os.path.splitext(proteins[j])[0]}.html'
             run(session, f'log save {html_file}')
             run(session, 'close session; log clear')
@@ -147,8 +147,8 @@ def heatmap(matrix_file, output_dir):
         full_matrix.index = sheet_data.index
         full_matrix.columns = sheet_data.columns    
         # UPGMA
-        sns.clustermap(full_matrix, annot=True, method="average", col_cluster=False,
-                    cmap='YlOrRd', fmt = "g", annot_kws={"size": 150/full_matrix.shape[0]}, figsize=(13, 10))
+        sns.clustermap(full_matrix, method="average", col_cluster=False,
+                    cmap='YlOrRd', cbar_pos=(0.11, 0.84, 0.03, 0.15), figsize=(13, 10))
         
         # write file
         plot_name = f'{output_dir}/{sheet_name}.png'
@@ -164,16 +164,19 @@ def main():
     input_dir = str(sys.argv[1])
     output_dir = str(sys.argv[2])
     
-    if (len(sys.argv) > 3):
-        chosen_proteins = list(map(str, sys.argv[3:]))
-        proteins = get_proteins(input_dir, chosen_proteins)
-    else:
-        proteins = get_proteins(input_dir)
+    # if (len(sys.argv) > 3):
+    #     chosen_proteins = list(map(str, sys.argv[3:]))
+    #     proteins = get_proteins(input_dir, chosen_proteins)
+    # else:
+    #     proteins = get_proteins(input_dir)
+    
+    proteins = get_proteins(input_dir)
+    ssFraction = float(sys.argv[3]) if len(sys.argv) > 4 else 0.3
     
     if not os.path.exists(output_dir):
         os.mkdir(output_dir)
     
-    matrix_file = match(proteins, input_dir, output_dir)
+    matrix_file = match(proteins, input_dir, output_dir, ssFraction)
     heatmap(matrix_file, output_dir)
 
 

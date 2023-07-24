@@ -7,16 +7,15 @@ import sys
 from scipy.spatial import distance
 
 # py heatmap.py <input_alignment_file> <output_directory>
-# e.g. py heatmap.py C:\XResearch\Matchmaking\CasYvsCas12c\alignment.xlsx C:\XResearch\Matchmaking\CasYvsCas12c
+# e.g. py heatmap.py C:\XResearch\Matchmaking\allCas_ssonly\alignment.xlsx C:\XResearch\Matchmaking\allCas_ssonly
 
 def heatmap(dataframe, title = None, rownames = None, colnames = None, outdir = None):
     full_matrix = pd.DataFrame(np.tril(dataframe) + np.tril(dataframe, -1).T)
     full_matrix.index = rownames
     full_matrix.columns = colnames    
     # UPGMA
-    sns.clustermap(full_matrix, annot=True, method="average", col_cluster=False,
+    sns.clustermap(full_matrix, annot=True, method="average", col_cluster=False, cbar_pos=(0.11, 0.84, 0.03, 0.15),
                    cmap='YlOrRd', fmt = "g", annot_kws={"size": 150/full_matrix.shape[0]}, figsize=(13, 10))
-    plt.title(title)
     
     # write file
     plot_name = f'{outdir}/{title}.png'
