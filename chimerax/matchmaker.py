@@ -1,5 +1,6 @@
 import sys
 import os
+import random
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -8,21 +9,14 @@ import seaborn as sns
 
 # cd <folder of thie script>
 # runscript matchmaker.py <input folder> <output folder>
-# e.g. runscript matchmaker.py "C:\XResearch\Archive_PDB\Cas" "C:\XResearch\Matchmaking\allCas_ssonly" 
+# e.g. runscript matchmaker.py "C:\XResearch\Archive_PDB\selected" "C:\XResearch\Matchmaking\new_selected" 
 
 
-def get_proteins(input_dir, chosen_proteins = None):
+def get_proteins(input_dir):
     '''
-    Get the list of proteins from input filenames
+    Get the list of protein filess from input folder
     '''
-    files = [f for f in os.listdir(input_dir)]
-    if chosen_proteins is not None:
-        true_list = []
-        for chosen in chosen_proteins:
-            if chosen in files:
-                true_list.append(chosen)
-        return true_list
-        
+    files = [f for f in os.listdir(input_dir) if f.endswith(('.pdb', '.cif'))]
     return files
 
 
@@ -54,7 +48,7 @@ def read_html_file(input_file: str, verbose = False):
     
     pairs_index = raw_result.find("RMSD between ")
     pruned_atom_pairs_count = int(raw_result[pairs_index+len("RMSD between "):].split(" ")[0])
-    if verbose: print(f"Nunber of pruned atom pairs: {pruned_atom_pairs_count}")
+    if verbose: print(f"Number of pruned atom pairs: {pruned_atom_pairs_count}")
     
     pruned_rmsd_index = raw_result.find("RMSD between ")
     pruned_rmsd_info = raw_result[pruned_rmsd_index+len("RMSD between "):].split(";")[0].strip()
@@ -64,7 +58,7 @@ def read_html_file(input_file: str, verbose = False):
     atom_pairs_index = raw_result.find("across all ")
     atom_pairs_info = raw_result[atom_pairs_index + len("across all "):].split(";")[0].strip().split(")")[0]
     all_atom_pairs_count = int(atom_pairs_info.split(" ")[0])
-    if verbose: print(f"Nunber of all atom pairs: {all_atom_pairs_count}")
+    if verbose: print(f"Number of all atom pairs: {all_atom_pairs_count}")
     
     all_rmsd = float(atom_pairs_info.split(" ")[-1])
     if verbose: print(f"RMSD between all atom pairs: {all_rmsd}")
@@ -122,11 +116,21 @@ def match(proteins, input_dir, output_dir, ssFraction):
             # remove the html file
             if os.path.exists(html_file):
                 os.remove(html_file) 
-            
+    
+    # normalize the alignment score to itself
+    norm_alignment_score = alignment_score_mat / np.diagonal(alignment_score_mat)[:, np.newaxis]
+    norm_alignment_score_mat = pd.DataFrame(norm_alignment_score, index = protein_names, columns = protein_names)
+    
+    # normalize the alignment score by length
+    norm_alignment_score_2 = alignment_score_mat / all_atom_pairs_mat
+    norm_alignment_score_mat_2 = pd.DataFrame(norm_alignment_score_2, index = protein_names, columns = protein_names)
+    
     # write to excel    
     matrix_file = f'{output_dir}/alignment.xlsx' 
     writer = pd.ExcelWriter(matrix_file, engine="xlsxwriter")
     alignment_score_mat.to_excel(writer, sheet_name="Alignment score")
+    norm_alignment_score_mat.to_excel(writer, sheet_name="Norm alignment score diag")
+    norm_alignment_score_mat_2.to_excel(writer, sheet_name="Norm alignment score length")
     all_rmsd_mat.to_excel(writer, sheet_name="RMSD (All pairs)")
     all_atom_pairs_mat.to_excel(writer, sheet_name="All atom pairs")
     pruned_rmsd_mat.to_excel(writer, sheet_name="RMSD between pruned atom pairs")
@@ -137,47 +141,82 @@ def match(proteins, input_dir, output_dir, ssFraction):
     return matrix_file
     
 
-def heatmap(matrix_file, output_dir):
+def clustermap(matrix_file, output_dir, clusters=None):
     '''
     Plot heatmaps and hierarchical clustering tree for each distance matrices
+    using the `seaborn` library
     '''
     excel_data = pd.read_excel(matrix_file, sheet_name=None, header=0, index_col=0)
+    
+    if len(clusters) == 0:
+        row_colors = None
+    else:
+        palette = 'wrgbymck' if len(clusters.unique()) <= 8 else random.shuffle(sns.color_palette("Paired"))
+        colors = dict(zip(clusters.unique(), palette))
+        row_colors = clusters.map(colors)
+    
     for sheet_name, sheet_data in excel_data.items():
         full_matrix = pd.DataFrame(np.tril(sheet_data) + np.tril(sheet_data, -1).T)
         full_matrix.index = sheet_data.index
         full_matrix.columns = sheet_data.columns    
+            
         # UPGMA
-        sns.clustermap(full_matrix, method="average", col_cluster=False,
-                    cmap='YlOrRd', cbar_pos=(0.11, 0.84, 0.03, 0.15), figsize=(13, 10))
+        sns.clustermap(full_matrix, method="average", col_cluster=False, cbar_pos=(0.11, 0.84, 0.03, 0.15),
+                #  annot=True, fmt = "g", annot_kws={"size": 150/full_matrix.shape[0]}, 
+                   figsize=(13, 10), cmap='YlOrRd', row_colors=row_colors)
         
         # write file
         plot_name = f'{output_dir}/{sheet_name}.png'
-        if os.path.exists(plot_name):
-            os.remove(plot_name)
+        # if os.path.exists(plot_name):
+        #     os.remove(plot_name)
         plt.savefig(plot_name)
 
 
+def pvclust(script_path, matrix_file, output_dir, clusters = None):
+    '''
+    Perform hierarchical clustering via multiscale bootstrap resampling using 
+    an R script that calls the `pvclust` library
+    '''
+    import subprocess
+    try:
+        subprocess.run(["C:/Program Files/R/R-4.2.2/bin/Rscript", script_path], check=True)
+    except subprocess.CalledProcessError as e:
+        print(f"Error executing the R script: {e}")
+    
+
 def main():
+    
     if (len(sys.argv) < 3):
         sys.exit("Input and output folders are required")
     
     input_dir = str(sys.argv[1])
     output_dir = str(sys.argv[2])
     
-    # if (len(sys.argv) > 3):
-    #     chosen_proteins = list(map(str, sys.argv[3:]))
-    #     proteins = get_proteins(input_dir, chosen_proteins)
-    # else:
-    #     proteins = get_proteins(input_dir)
-    
+    # distance matrix
     proteins = get_proteins(input_dir)
-    ssFraction = float(sys.argv[3]) if len(sys.argv) > 4 else 0.3
-    
+    ssFraction = float(sys.argv[3]) if len(sys.argv) > 3 else 0.3
     if not os.path.exists(output_dir):
         os.mkdir(output_dir)
-    
     matrix_file = match(proteins, input_dir, output_dir, ssFraction)
-    heatmap(matrix_file, output_dir)
+    
+    # clustermap
+    clusters_file = f'{input_dir}/clusters.csv'
+    if os.path.exists(clusters_file):
+        clusters = pd.read_csv(clusters_file, header=0, index_col=0).iloc[:,-1]
+    else:
+        clusters = pd.Series()
+    clustermap(matrix_file, output_dir, clusters)
 
 
-main()
+def test():
+    input_dir = "C:/XResearch/Archive_PDB/selected"
+    output_dir = "C:/XResearch/Matchmaking/selected"
+    matrix_file = "C:/XResearch/Matchmaking/selected/alignment.xlsx"
+    
+    script_path = "C:/XResearch/Coding/chimerax/pvclust.R"
+    pvclust(script_path, matrix_file, output_dir)
+
+if __name__=="__main__":
+    test()
+else:
+    main()
