@@ -14,7 +14,7 @@ from math import sqrt
 from multiprocessing import Pool, cpu_count
 import pandas as pd
 import numpy as np
-
+import random
 from scipy.stats import norm, chi2
 from scipy.cluster.hierarchy import (dendrogram, set_link_color_palette,
                                      leaves_list, to_tree, linkage)
@@ -180,17 +180,18 @@ class PvClust:
             columns=['AU', 'BP', 'SE.AU', 'SE.BP', 'pchi', 'v', 'c'])
         return result
 
-    def plot(self, labels=None):
+    def plot(self, labels=None, param_display = 'AU', orientation='top', sig_level = 95):
         """Plot dendrogram with AU BP values for each node"""
         plot_dendrogram(self.linkage_matrix,
-                        np.array(self.result[['AU', 'BP']]), labels)
+                        np.array(self.result[[param_display]]), labels, param_display, orientation, sig_level)
 
     def seplot(self, pvalue='AU', annotate=False):
         """p-values vs Standard error plot"""
         x = self.result['AU'] if pvalue == 'AU' else self.result['BP']
-        y = self. result['SE.AU'] if pvalue == 'AU' else self.result['SE.BP']
+        y = self.result['SE.AU'] if pvalue == 'AU' else self.result['SE.BP']
         clusters = []
 
+        plt.clf()
         plt.scatter(x, y, facecolors='none', edgecolors='r')
         plt.title("p-value vs Standard Error plot")
         plt.xlabel(pvalue + " p-value")
@@ -200,7 +201,7 @@ class PvClust:
                 if y[i] > 0.6:
                     plt.text(x[i], y[i], f"{i}")
                     clusters.append(i)
-        plt.show()
+        plt.savefig("SEplot.pdf")
         if clusters:
             return clusters
 
@@ -221,7 +222,7 @@ class HierarchicalClusteringClusters:
     """Apply Hierarhical Clustering on the data and find elements of
     each cluster"""
     def __init__(self, data, method='ward', metric='euclidean'):
-
+        
         self.linkage_matrix = linkage(data, method, metric)
         self.nodes = to_tree(self.linkage_matrix, rd=True)[1]
 
@@ -264,41 +265,62 @@ class HierarchicalClusteringClusters:
         return clusters
 
 
-def plot_dendrogram(linkage_matrix, pvalues, labels=None):
+def plot_dendrogram(linkage_matrix, pvalues, labels=None, param_display = 'AU', orientation='top', sig_level = 95):
     """ Plot dendrogram with AU BP values for each node"""
-    d = dendrogram(linkage_matrix, no_plot=True)
+    d = dendrogram(linkage_matrix, no_plot=True, orientation=orientation)
     xcoord = d["icoord"]
     ycoord = d["dcoord"]
     # Obtaining the coordinates of all nodes above leaves
     x = {i: (j[1]+j[2])/2 for i, j in enumerate(xcoord)}
     y = {i: j[1] for i, j in enumerate(ycoord)}
     pos = node_positions(y, x)
-
+    
+    plt.clf()
     plt.figure(figsize=(12, 10))
     plt.tight_layout()
-    set_link_color_palette(['c', 'g'])
-    d = dendrogram(linkage_matrix, labels=labels, above_threshold_color='c',
-                   color_threshold=0.1)
+    set_link_color_palette(['C0', 'k'])
+    d = dendrogram(linkage_matrix, labels=labels, 
+                   above_threshold_color='k',color_threshold=0, 
+                   orientation=orientation)
     ax = plt.gca()
+    param_color = 'red' if param_display == 'AU' else 'green'
     for node, (x, y) in pos.items():
-
-        if node == (len(pos.items())-1):
-            ax.text(x-6, y+5, 'AU', fontsize=11, fontweight='bold',
-                    color='purple')
-            ax.text(x+1, y+5, 'BP', fontsize=11, fontweight='bold',
-                    color='black')
+        # Set text positions based on orientation
+        if orientation in ['top', 'bottom']:
+            # au_x = x - fig_width/350
+            # bp_x = x + fig_width/2500
+            # au_y = y + fig_height/500
+            # bp_y = y + fig_height/500
+            au_x, au_y = x, y
+            bp_x, bp_y = x, y
+        elif orientation in ['left', 'right']:
+            # au_x = y + fig_width/5
+            # bp_x = y + fig_width/5
+            # au_y = x + fig_height/1000
+            # bp_y = x - fig_height/500
+            au_x, au_y = y, x
+            bp_x, bp_y = y, x
         else:
-            if pvalues[node][0]*100 >= 95:
-                ax.text(x-5, y+5, f' {pvalues[node][0]*100:.0f}', fontsize=8,
-                        color='purple', fontweight='bold')
-                ax.text(x+1, y+5, f'{pvalues[node][1]*100:.0f}', fontsize=8,
-                        color='black', fontweight='bold')
+            au_x, au_y = 0, 0
+            bp_x, bp_y = 0, 0
+        
+        if node == (len(pos.items())-1):
+            ax.text(au_x, au_y, param_display, fontsize='medium',
+                    color=param_color)
+            # ax.text(bp_x, bp_y, 'bp', fontsize='medium',
+            #         color='green')
+        else:
+            if pvalues[node][0]*100 >= sig_level:
+                ax.text(au_x, au_y, f'{pvalues[node][0]*100:.0f}', fontsize='small',
+                        color=param_color, fontweight='bold')
+                # ax.text(bp_x, bp_y, f'{pvalues[node][1]*100:.0f}', fontsize='small',
+                #         color='green', fontweight='bold')
             else:
-                ax.text(x-5, y+5, f' {pvalues[node][0]*100:.0f}', fontsize=8,
-                        color='purple')
-                ax.text(x+1, y+5, f'{pvalues[node][1]*100:.0f}', fontsize=8,
-                        color='black')
-#    plt.savefig('dendrogram.pdf')
+                ax.text(au_x, au_y, f'{pvalues[node][0]*100:.0f}', fontsize='small',
+                        color=param_color)
+                # ax.text(bp_x, bp_y, f'{pvalues[node][1]*100:.0f}', fontsize='small',
+                #         color='green')
+    plt.savefig('dendrogram.pdf')
 
 
 def node_positions(x, y):
