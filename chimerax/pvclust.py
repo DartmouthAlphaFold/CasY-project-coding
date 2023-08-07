@@ -14,7 +14,6 @@ from math import sqrt
 from multiprocessing import Pool, cpu_count
 import pandas as pd
 import numpy as np
-import random
 from scipy.stats import norm, chi2
 from scipy.cluster.hierarchy import (dendrogram, set_link_color_palette,
                                      leaves_list, to_tree, linkage)
@@ -180,12 +179,12 @@ class PvClust:
             columns=['AU', 'BP', 'SE.AU', 'SE.BP', 'pchi', 'v', 'c'])
         return result
 
-    def plot(self, labels=None, param_display = 'AU', orientation='top', sig_level = 95):
+    def plot(self, filename="dendrogram.pdf", labels=None, param_display = 'AU', sig_level = 95, orientation='top'):
         """Plot dendrogram with AU BP values for each node"""
-        plot_dendrogram(self.linkage_matrix,
-                        np.array(self.result[[param_display]]), labels, param_display, orientation, sig_level)
+        content_display = np.arange(np.array(self.result).shape[0]).reshape(-1, 1) if param_display == 'NODE' else np.array(self.result[[param_display]])
+        plot_dendrogram(self.linkage_matrix, filename, content_display, labels, param_display, orientation, sig_level)
 
-    def seplot(self, pvalue='AU', annotate=False):
+    def seplot(self, filename="SEplot.pdf", pvalue='AU', annotate=False):
         """p-values vs Standard error plot"""
         x = self.result['AU'] if pvalue == 'AU' else self.result['BP']
         y = self.result['SE.AU'] if pvalue == 'AU' else self.result['SE.BP']
@@ -201,7 +200,7 @@ class PvClust:
                 if y[i] > 0.6:
                     plt.text(x[i], y[i], f"{i}")
                     clusters.append(i)
-        plt.savefig("SEplot.pdf")
+        plt.savefig(filename)
         if clusters:
             return clusters
 
@@ -265,62 +264,49 @@ class HierarchicalClusteringClusters:
         return clusters
 
 
-def plot_dendrogram(linkage_matrix, pvalues, labels=None, param_display = 'AU', orientation='top', sig_level = 95):
+def plot_dendrogram(linkage_matrix, filename, pvalues, labels=None, param_display = 'AU', orientation='top', sig_level = 95):
     """ Plot dendrogram with AU BP values for each node"""
-    d = dendrogram(linkage_matrix, no_plot=True, orientation=orientation)
+    d = augmented_dendrogram(linkage_matrix, no_plot=True, orientation=orientation)
     xcoord = d["icoord"]
     ycoord = d["dcoord"]
     # Obtaining the coordinates of all nodes above leaves
     x = {i: (j[1]+j[2])/2 for i, j in enumerate(xcoord)}
     y = {i: j[1] for i, j in enumerate(ycoord)}
     pos = node_positions(y, x)
+    param_color = {'AU':'red', 'BP':'green', 'NODE':'grey'}
     
     plt.clf()
     plt.figure(figsize=(12, 10))
     plt.tight_layout()
     set_link_color_palette(['C0', 'k'])
-    d = dendrogram(linkage_matrix, labels=labels, 
+    d = augmented_dendrogram(linkage_matrix, labels=labels, 
                    above_threshold_color='k',color_threshold=0, 
                    orientation=orientation)
     ax = plt.gca()
-    param_color = 'red' if param_display == 'AU' else 'green'
     for node, (x, y) in pos.items():
         # Set text positions based on orientation
         if orientation in ['top', 'bottom']:
-            # au_x = x - fig_width/350
-            # bp_x = x + fig_width/2500
-            # au_y = y + fig_height/500
-            # bp_y = y + fig_height/500
-            au_x, au_y = x, y
-            bp_x, bp_y = x, y
+            pv_label_x, pv_label_y = x, y
         elif orientation in ['left', 'right']:
-            # au_x = y + fig_width/5
-            # bp_x = y + fig_width/5
-            # au_y = x + fig_height/1000
-            # bp_y = x - fig_height/500
-            au_x, au_y = y, x
-            bp_x, bp_y = y, x
+            pv_label_x, pv_label_y = y, x
         else:
-            au_x, au_y = 0, 0
-            bp_x, bp_y = 0, 0
+            pv_label_x, pv_label_y = 0, 0
         
-        if node == (len(pos.items())-1):
-            ax.text(au_x, au_y, param_display, fontsize='medium',
-                    color=param_color)
-            # ax.text(bp_x, bp_y, 'bp', fontsize='medium',
-            #         color='green')
+        if param_display == 'NODE':
+            ax.text(pv_label_x, pv_label_y, f'{pvalues[node][0]}', fontsize = 'small',
+                    color=param_color[param_display])
         else:
-            if pvalues[node][0]*100 >= sig_level:
-                ax.text(au_x, au_y, f'{pvalues[node][0]*100:.0f}', fontsize='small',
-                        color=param_color, fontweight='bold')
-                # ax.text(bp_x, bp_y, f'{pvalues[node][1]*100:.0f}', fontsize='small',
-                #         color='green', fontweight='bold')
+            if node == (len(pos.items())-1):
+                ax.text(pv_label_x, pv_label_y, param_display, fontsize='medium',
+                        color=param_color[param_display])
             else:
-                ax.text(au_x, au_y, f'{pvalues[node][0]*100:.0f}', fontsize='small',
-                        color=param_color)
-                # ax.text(bp_x, bp_y, f'{pvalues[node][1]*100:.0f}', fontsize='small',
-                #         color='green')
-    plt.savefig('dendrogram.pdf')
+                if pvalues[node][0]*100 >= sig_level:
+                    ax.text(pv_label_x, pv_label_y, f'{pvalues[node][0]*100:.0f}', fontsize='small',
+                            color=param_color[param_display], fontweight='bold')
+                else:
+                    ax.text(pv_label_x, pv_label_y, f'{pvalues[node][0]*100:.0f}', fontsize='small',
+                            color=param_color[param_display])
+    plt.savefig(filename)
 
 
 def node_positions(x, y):
@@ -333,3 +319,18 @@ def node_positions(x, y):
     pos = {i: positions[i][1] for i in range(len(positions))}
 
     return pos
+
+def augmented_dendrogram(*args, **kwargs):
+
+    ddata = dendrogram(*args, **kwargs)
+
+    if not kwargs.get('no_plot', False):
+        for i, d in zip(ddata['icoord'], ddata['dcoord']):
+            x = 0.5 * sum(i[1:3])
+            y = d[1]
+            plt.plot(x, y, 'ro')
+            plt.annotate("%.3g" % y, (x, y), xytext=(0, 8),
+                         textcoords='offset points',
+                         va='top', ha='center')
+
+    return ddata

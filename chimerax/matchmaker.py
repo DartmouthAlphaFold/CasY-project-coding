@@ -3,6 +3,9 @@ import os
 import random
 import numpy as np
 import pandas as pd
+import time
+from functools import wraps
+from pvclust import PvClust
 import matplotlib.pyplot as plt
 from bs4 import BeautifulSoup
 import seaborn as sns
@@ -10,6 +13,20 @@ import seaborn as sns
 # cd <folder of thie script>
 # runscript matchmaker.py <input folder> <output folder>
 # e.g. runscript matchmaker.py "C:\XResearch\Archive_PDB\selected" "C:\XResearch\Matchmaking\new_selected" 
+
+def timer(progress_func):
+    '''
+    Measure how much time each function executed
+    '''
+    @wraps(progress_func)
+    def wrapper(*args, **kwargs):
+        start_time = time.time()
+        result = progress_func(*args, **kwargs)
+        end_time = time.time()
+        execution_time = end_time - start_time
+        print(f"Step {progress_func.__name__} took {execution_time:.3f} seconds")
+        return result
+    return wrapper
 
 
 def get_proteins(input_dir):
@@ -167,8 +184,6 @@ def clustermap(matrix_file, output_dir, clusters=None):
         
         # write file
         plot_name = f'{output_dir}/{sheet_name}.png'
-        # if os.path.exists(plot_name):
-        #     os.remove(plot_name)
         plt.savefig(plot_name)
 
 
@@ -183,9 +198,25 @@ def pvclust(script_path, matrix_file, output_dir, clusters = None):
     except subprocess.CalledProcessError as e:
         print(f"Error executing the R script: {e}")
     
+@timer
+def pvclustpy(matrix_file, output_dir, clusters = None):
+    excel_data = pd.read_excel(matrix_file, sheet_name=None, header=0, index_col=0)
+    
+    random.seed(0)
+    for sheet_name, sheet_data in excel_data.items():
+        full_matrix = pd.DataFrame(np.tril(sheet_data) + np.tril(sheet_data, -1).T)
+        full_matrix.index = sheet_data.index
+        full_matrix.columns = sheet_data.columns  
+    
+        pv = PvClust(full_matrix, method="ward", metric="euclidean", nboot=10000, parallel=True)
+        pv.plot(f"{output_dir}/Dendrogram ({sheet_name}).pdf", labels=full_matrix.index,
+                param_display='AU', sig_level = 95, orientation = "left")
+        print(f"\n...{sheet_name}...")
+        pv.print_result(digits=5)
+        pv.seplot(f"{output_dir}/SEplot ({sheet_name}).pdf", annotate=True)
+
 
 def main():
-    
     if (len(sys.argv) < 3):
         sys.exit("Input and output folders are required")
     
@@ -214,9 +245,9 @@ def test():
     matrix_file = "C:/XResearch/Matchmaking/selected/alignment.xlsx"
     
     script_path = "C:/XResearch/Coding/chimerax/pvclust.R"
-    pvclust(script_path, matrix_file, output_dir)
+    # pvclust(script_path, matrix_file, output_dir)
+    pvclustpy(matrix_file, output_dir)
+    
 
 if __name__=="__main__":
     test()
-else:
-    main()

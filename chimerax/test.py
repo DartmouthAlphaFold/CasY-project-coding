@@ -25,7 +25,7 @@ def main():
     X = np.hstack([raw_df.values[::2, :], raw_df.values[1::2, :2]])
     X = pd.DataFrame(X)
     pv = PvClust(X, method="ward", metric="euclidean", nboot=100, parallel=True)
-    pv.plot(orientation = "left", sig_level = 95, param_display='AU')
+    pv.plot(param_display='AU', sig_level = 95, orientation = "top")
     pv.print_result(digits = 5)
     pv.seplot(annotate=True)
     
