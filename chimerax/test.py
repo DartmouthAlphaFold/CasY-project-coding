@@ -24,8 +24,8 @@ def main():
     raw_df = pd.read_csv(data_url, sep="\s+", skiprows=22, header=None)
     X = np.hstack([raw_df.values[::2, :], raw_df.values[1::2, :2]])
     X = pd.DataFrame(X)
-    pv = PvClust(X, method="ward", metric="euclidean", nboot=100, parallel=True)
-    pv.plot(param_display='AU', sig_level = 95, orientation = "top")
+    pv = PvClust(X, method="average", metric="correlation", nboot=100, parallel=True)
+    pv.plot(param_display='AU', sig_level = 95, orientation = "right")
     pv.print_result(digits = 5)
     pv.seplot(annotate=True)
     

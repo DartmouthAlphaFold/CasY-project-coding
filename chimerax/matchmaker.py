@@ -87,6 +87,7 @@ def read_html_file(input_file: str, verbose = False):
             "all_rmsd": all_rmsd}
 
 
+@timer
 def match(proteins, input_dir, output_dir, ssFraction):
     '''
     Match proteins, print output to HTML format, then read HTML file to print out matrices
@@ -197,7 +198,8 @@ def pvclust(script_path, matrix_file, output_dir, clusters = None):
         subprocess.run(["C:/Program Files/R/R-4.2.2/bin/Rscript", script_path], check=True)
     except subprocess.CalledProcessError as e:
         print(f"Error executing the R script: {e}")
-    
+
+
 @timer
 def pvclustpy(matrix_file, output_dir, clusters = None):
     excel_data = pd.read_excel(matrix_file, sheet_name=None, header=0, index_col=0)
@@ -230,24 +232,27 @@ def main():
         os.mkdir(output_dir)
     matrix_file = match(proteins, input_dir, output_dir, ssFraction)
     
-    # clustermap
+    # build dendrogram, colored by provided cluster map
     clusters_file = f'{input_dir}/clusters.csv'
     if os.path.exists(clusters_file):
         clusters = pd.read_csv(clusters_file, header=0, index_col=0).iloc[:,-1]
     else:
         clusters = pd.Series()
-    clustermap(matrix_file, output_dir, clusters)
+    # clustermap(matrix_file, output_dir, clusters)
+    pvclustpy(matrix_file, output_dir, clusters=None)
 
 
 def test():
     input_dir = "C:/XResearch/Archive_PDB/selected"
-    output_dir = "C:/XResearch/Matchmaking/selected"
+    output_dir = "C:/XResearch/Matchmaking/selected/pvclust"
     matrix_file = "C:/XResearch/Matchmaking/selected/alignment.xlsx"
+    if not os.path.exists(output_dir):
+        os.mkdir(output_dir)
     
-    script_path = "C:/XResearch/Coding/chimerax/pvclust.R"
+    # script_path = "C:/XResearch/Coding/chimerax/pvclust.R"
     # pvclust(script_path, matrix_file, output_dir)
     pvclustpy(matrix_file, output_dir)
     
 
 if __name__=="__main__":
-    test()
+    main()
