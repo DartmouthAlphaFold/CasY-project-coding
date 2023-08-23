@@ -3,10 +3,13 @@
 """
 Python launch script for AlphaFold 2.3.2 on Dartmouth HPC cluster
 By Duc Nguyen '24, Colby College
-Updated on 2023-07-16
+Updated on 2023-08-23
 
-In order to run ALphaFold, adjust and submit the Slurm script `run_alphafold_singularity_gpu.sh` in the lab folder.
-For a typical run using GPU with GPU-based relaxation, the command is
+Modified based on the code for AlphaFold on UCSF Wynton cluster by Tom Goddard
+`https://www.rbvi.ucsf.edu/chimerax/data/singularity-apr2022/afsingularity.html`
+
+In order to run AlphaFold, adjust and submit the Slurm script `run_alphafold_singularity_gpu.sh` in the lab folder.
+For a typical run using GPU with CPU-based relaxation, the command is
 
 `python3 run_alphafold_singularity_gpu.py \
   --fasta_paths <path_to_fasta_files> \
@@ -51,7 +54,7 @@ def parse_args():
             'stage.')
   
   parser.add_argument(
-    '--use_gpu_relax', type=str_to_bool, default=True,
+    '--use_gpu_relax', type=str_to_bool, default=False,
     help='Whether to do OpenMM energy minimization (relaxation) using GPU.')
 
   parser.add_argument(
@@ -64,11 +67,7 @@ def parse_args():
     'and template databases. Set to the target of download_all_databases.sh.')
 
   parser.add_argument(
-    '--mount_data_dir', default='/dartfs/rc/nosnapshots/A/Appdata',
-    help='Path to directory where databases reside.')
-
-  parser.add_argument(
-    '--singularity_image_path', default='/dartfs/rc/lab/H/HowellA/AlphaFold/alphafold_232.sif',
+    '--singularity_image_path', default='/dartfs/rc/lab/H/HowellA/AlphaFold/alphafold_232_params_v3.sif',
     help='Path to the AlphaFold singularity image.')
 
   parser.add_argument(
@@ -230,7 +229,7 @@ def main():
   args = ['singularity',
           'run',
           '--nv',                             # Enable NVIDIA
-          '-B "%s"' % args.mount_data_dir,    # Mount AlphaFold databases
+          '-B "%s"' % args.data_dir,          # Mount AlphaFold databases
           '-B /optnfs/el7/cuda/11.2/lib64',   # Mount to link to CUDA libraries
           '-B /dartfs/rc/lab/H/HowellA',      # Mount to lab folder to write files
           '-B "%s"' % tempdir,		            # Mount scratch directory

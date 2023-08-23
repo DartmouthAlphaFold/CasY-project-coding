@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
 
+'''
+Python script for visualizing AlphaFold 2.3.2 results on Dartmouth HPC cluster
+By Duc Nguyen '24, Colby College
+Updated on 2023-08-23
+'''
+
 import os
 import glob
 import pickle
@@ -17,14 +23,20 @@ class ARG:
         
 def get_pae_plddt(model_dicts, model_type):
     out = {}
-    if (model_type == "monomer"):
+    if model_type == "multimer":
         for i,d in enumerate(model_dicts):
-            out[f'model_{i+1}'] = {'plddt': d['plddt']}
-    else:    
+            out[d['model_name']] = {'plddt': d['plddt'],
+                                   'pae':d['predicted_aligned_error'],
+                                   'ptm':d['ptm'],
+                                   'iptm':d['iptm']}
+    elif model_type == "monomer_ptm":    
         for i,d in enumerate(model_dicts):
             out[f'model_{i+1}'] = {'plddt': d['plddt'], 
                                 'pae':d['predicted_aligned_error'],
                                 'ptm':d['ptm']}
+    else:
+        for i,d in enumerate(model_dicts):
+            out[f'model_{i+1}'] = {'plddt': d['plddt']}
     return out
  
 def generate_output_images(feature_dict, model_dicts, ranking_dict, 
@@ -58,8 +70,15 @@ def generate_output_images(feature_dict, model_dicts, ranking_dict,
     
     s = 0
     for model_name, value in pae_plddt_per_model.items():
-        plt.plot(value["plddt"], 
-                 label=f"{model_name}, plddt: {round(list(ranking_dict['plddts'].values())[s], 6)}, ptm: {round(float(value['ptm']), 6)}")
+        if model_type == 'multimer':
+            plt.plot(value["plddt"],
+                    label=f"{model_name}, iptm+ptm: {round(list(ranking_dict['iptm+ptm'].values())[s], 6)}, plddt: {round(np.mean(value['plddt']), 6)}")
+        elif model_type == 'monomer_ptm':
+            plt.plot(value["plddt"], 
+                    label=f"{model_name}, plddt: {round(list(ranking_dict['plddts'].values())[s], 6)}, ptm: {round(float(value['ptm']), 6)}")
+        else:
+            plt.plot(value["plddt"], 
+                    label=f"{model_name}, plddt: {round(list(ranking_dict['plddts'].values())[s], 6)}")
         s += 1
         
     plt.legend()
@@ -83,7 +102,7 @@ def generate_output_images(feature_dict, model_dicts, ranking_dict,
     for n, (model_name, value) in enumerate(pae_plddt_per_model.items()):
         plt.clf()
         # plt.subplot(1, num_models, n + 1)
-        plt.title(f"{name} {model_name} (plddt = {round(list(ranking_dict['plddts'].values())[n], 6)})")
+        plt.title(f"{name} {model_name}")
         plt.imshow(value["pae"], label=model_name, cmap="bwr", vmin=0, vmax=30)
         plt.colorbar()
         plt.savefig(f"{out_dir}/{name+('_' if name else '')+model_name}_PAE.png")
@@ -97,7 +116,10 @@ def main():
         sys.exit("Output/Input directory are required")
     
     main_repo = sys.argv[1]
-    repo = [os.path.join(main_repo, entry.name) for entry in os.scandir(main_repo) if entry.is_dir()] # This is a list of all output repositories
+    repo = [os.path.join(main_repo, entry.name) for entry in os.scandir(main_repo) if entry.is_dir() and entry.name!='msas'] # This is a list of all output repositories
+    if len(repo) == 0:
+        sys.exit(f'Found 0 folder containing AlphaFold results inside {main_repo}.\nPlease check the path again.')
+    
     
     for r in repo:
         args = ARG(r)
@@ -105,18 +127,24 @@ def main():
             ranking_dict = json.load(f)
             
         feature_dict = pickle.load(open(f'{args.input_dir}/features.pkl','rb'))
-    
-        is_multimer = ('result_model_1_multimer_v2_pred_0.pkl' in [os.path.basename(f) for f in os.listdir(path=args.input_dir)])
-        is_monomer_ptm = ('result_model_1_ptm_pred_0.pkl' in [os.path.basename(f) for f in os.listdir(path=args.input_dir)])
-        
-        if is_multimer==False:
-            model_dicts = [pickle.load(open(f'{args.input_dir}/result_model_{f}{"_multimer_v2" if is_multimer else ""}{"_ptm" if is_monomer_ptm else ""}_pred_0.pkl','rb'))
-                        for f in range(1,6)]
-        else:
-            model_dicts = [pickle.load(open(f'{args.input_dir}/result_model_{f}{"_multimer_v2" if is_multimer else ""}{"_ptm" if is_monomer_ptm else ""}_pred_{g}.pkl','rb')) 
-                        for f in range(1,6) for g in range(5)]
 
+        file_list = [os.path.basename(f) for f in os.listdir(args.input_dir)]
+        is_multimer = len(set(['result_model_1_multimer_pred_0.pkl', 'result_model_1_multimer_v2_pred_0.pkl', 'result_model_1_multimer_v3_pred_0.pkl']) & set(file_list)) > 0
+        is_monomer_ptm = 'result_model_1_ptm_pred_0.pkl' in file_list
         model_type = "multimer" if is_multimer else ("monomer_ptm" if is_monomer_ptm else "monomer")
+        
+        if model_type != 'multimer':
+            model_dicts = [pickle.load(open(f'{args.input_dir}/result_model_{f}{"_ptm" if is_monomer_ptm else ""}_pred_0.pkl','rb'))
+                            for f in range(1,6)] 
+        else:
+            pkl_files = [os.path.join(args.input_dir, file) for file in os.listdir(args.input_dir) if file.startswith('result_model_') and file.endswith('.pkl')]
+            model_dicts = []
+            for pkl_file in sorted(pkl_files):
+                model_dict = pickle.load(open(pkl_file, 'rb'))
+                model_dict['model_name'] = os.path.splitext(os.path.basename(pkl_file))[0].replace('result_', '')
+                model_dicts.append(model_dict)
+        
+
         pae_plddt_per_model = get_pae_plddt(model_dicts, model_type)
         generate_output_images(feature_dict, model_dicts, ranking_dict, 
                             args.output_dir if args.output_dir else args.input_dir, 

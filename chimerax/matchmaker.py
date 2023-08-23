@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 import time
 from functools import wraps
-from pvclust import PvClust
+import pvclust
 import matplotlib.pyplot as plt
 from bs4 import BeautifulSoup
 import seaborn as sns
@@ -24,7 +24,7 @@ def timer(progress_func):
         result = progress_func(*args, **kwargs)
         end_time = time.time()
         execution_time = end_time - start_time
-        print(f"Step {progress_func.__name__} took {execution_time:.3f} seconds")
+        print(f'Step "{progress_func.__name__}" took {execution_time:.3f} seconds')
         return result
     return wrapper
 
@@ -88,7 +88,7 @@ def read_html_file(input_file: str, verbose = False):
 
 
 @timer
-def match(proteins, input_dir, output_dir, ssFraction):
+def matchmaker(proteins, input_dir, output_dir, ssFraction):
     '''
     Match proteins, print output to HTML format, then read HTML file to print out matrices
     Return 
@@ -188,7 +188,8 @@ def clustermap(matrix_file, output_dir, clusters=None):
         plt.savefig(plot_name)
 
 
-def pvclust(script_path, matrix_file, output_dir, clusters = None):
+@timer
+def pvclustR(script_path, matrix_file, output_dir, clusters = None):
     '''
     Perform hierarchical clustering via multiscale bootstrap resampling using 
     an R script that calls the `pvclust` library
@@ -209,8 +210,7 @@ def pvclustpy(matrix_file, output_dir, clusters = None):
         full_matrix = pd.DataFrame(np.tril(sheet_data) + np.tril(sheet_data, -1).T)
         full_matrix.index = sheet_data.index
         full_matrix.columns = sheet_data.columns  
-    
-        pv = PvClust(full_matrix, method="ward", metric="euclidean", nboot=10000, parallel=True)
+        pv = pvclust.PvClust(full_matrix, method="ward", metric="euclidean", nboot=10000, parallel=False)
         pv.plot(f"{output_dir}/Dendrogram ({sheet_name}).pdf", labels=full_matrix.index,
                 param_display='AU', sig_level = 95, orientation = "left")
         print(f"\n...{sheet_name}...")
@@ -230,7 +230,7 @@ def main():
     ssFraction = float(sys.argv[3]) if len(sys.argv) > 3 else 0.3
     if not os.path.exists(output_dir):
         os.mkdir(output_dir)
-    matrix_file = match(proteins, input_dir, output_dir, ssFraction)
+    matrix_file = matchmaker(proteins, input_dir, output_dir, ssFraction)
     
     # build dendrogram, colored by provided cluster map
     clusters_file = f'{input_dir}/clusters.csv'
@@ -244,7 +244,7 @@ def main():
 
 def test():
     input_dir = "C:/XResearch/Archive_PDB/selected"
-    output_dir = "C:/XResearch/Matchmaking/selected/pvclust"
+    output_dir = "C:/XResearch/Matchmaking/selected/pvclust_parallel"
     matrix_file = "C:/XResearch/Matchmaking/selected/alignment.xlsx"
     if not os.path.exists(output_dir):
         os.mkdir(output_dir)
@@ -253,6 +253,7 @@ def test():
     # pvclust(script_path, matrix_file, output_dir)
     pvclustpy(matrix_file, output_dir)
     
-
-if __name__=="__main__":
+    
+print(f'Running in {__name__}')
+if __name__.startswith('ChimeraX_sandbox'):
     main()
